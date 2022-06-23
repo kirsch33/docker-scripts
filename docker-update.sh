@@ -1,6 +1,6 @@
 #!/bin/bash
 
-declare -a containers=("caddy" "unifi" "jackett" "ombi" "radarr" "sonarr" "transmission" "plex" "diun" "fail2ban")
+declare -a containers=("caddy" "unifi" "jackett" "overseerr" "tautulli" "radarr" "sonarr" "bazarr" "transmission" "plex" "fail2ban" "bitwarden" "bookstack_db" "bookstack")
 
 arraylength=${#containers[@]}
 
@@ -36,7 +36,9 @@ function update_container {
 
                 (/usr/bin/docker system prune -f -a)
 
-                (/usr/local/bin/docker-compose -f /var/docks/"$1"/docker-compose.yml up -d)
+                if [ "$1" != "bookstack_db" ] ; then
+                        (/usr/local/bin/docker-compose -f /var/docks/"$1"/docker-compose.yml up -d)
+                fi
 
                 (/usr/bin/docker system prune -f -a)
 }
@@ -50,5 +52,3 @@ do
                 No ) update_selective;;
         esac
 done
-
-
