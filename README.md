@@ -1,2 +1,2 @@
 # docker-update
-shell script to update docker containers
+shell script to update and backup docker containers
