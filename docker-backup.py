@@ -1,7 +1,8 @@
 import docker
 import subprocess
-from datetime import date
 import os
+import time
+from datetime import date
 import tarfile
 from rclone_python import rclone
 
@@ -10,8 +11,9 @@ timestamp = date.strftime(date.today(), "%m-%d-%y")
 filename = prefix + "_" + str(timestamp) + ".tar.gz"
 docker_dir = "/var/docks"
 
-exclude_dirs = [r"/var/docks/plex/Library/'Application Support'/'Plex Media Server'/Media",
-		r"/var/docks/plex/Library/'Application Support'/'Plex Media Server'/Cache"]
+exclude_dirs = [os.path.normpath(r"/var/docks/plex/Library/'Application Support'/'Plex Media Server'/Media"),
+                os.path.normpath(r"/var/docks/plex/Library/'Application Support'/'Plex Media Server'/Cache"),
+                os.path.normpath(r"/var/docks/influx/data/engine")]
 exclude_exts = [".db"]
 
 client = docker.from_env()
@@ -29,9 +31,8 @@ for dep_container in dep_containers:
     containers.append(dep_container)
 
 def filter_func(tarinfo):
-    if os.path.isdir(tarinfo.name):
-        if os.path.normpath(tarinfo.name) in os.path.normpath(exclude_dirs):
-            return None
+    if any(dir in os.path.normpath(os.path.abspath(tarinfo.name)) for dir in exclude_dirs):
+        return None
     elif any(ext in tarinfo.name for ext in exclude_exts):
         return None
     return tarinfo
@@ -65,6 +66,7 @@ try:
 
     for container in containers:
         container.start()
+        time.sleep(15)
 
     print("...")
     print("...")
@@ -95,7 +97,7 @@ try:
         print("...")
         print("...")
         print("Deleting " + str(len(backups_to_delete)) + " backups...")
-    
+
         for backup in backups_to_delete:
             rclone.delete("gdrive:/lab" + "/" + backup['Path'],
                           args=["--drive-use-trash=false"])
@@ -103,18 +105,13 @@ try:
         print("...")
         print("...")
         print("...")
-        print("No backups to delete...")       
+        print("No backups to delete...")
 
     print("...")
     print("...")
     print("...")
     print("success")
-    
 except:
-    print("...")
-    print("...")
-    print("...")
-    print("FAIL")
     if os.path.exists(filename):
         os.remove(filename)
 
