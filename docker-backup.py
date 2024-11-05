@@ -2,8 +2,10 @@ import docker
 import subprocess
 import os
 import time
-from datetime import date
 import tarfile
+import traceback
+
+from datetime import date
 from rclone_python import rclone
 
 prefix = "docker-backup"
@@ -13,12 +15,13 @@ docker_dir = "/var/docks"
 
 exclude_dirs = [os.path.normpath(r"/var/docks/plex/Library/'Application Support'/'Plex Media Server'/Media"),
                 os.path.normpath(r"/var/docks/plex/Library/'Application Support'/'Plex Media Server'/Cache"),
-                os.path.normpath(r"/var/docks/influx/data/engine")]
+                os.path.normpath(r"/var/docks/influx/data/engine"),
+                os.path.normpath(r"/var/docks/frigate/config/model_cache")]
+
 exclude_exts = [".db"]
 
 client = docker.from_env()
 containers = client.containers.list()
-dep_containers = []
 
 for container in containers:
     dep_container = str(container.labels['com.docker.compose.depends_on'])
@@ -26,9 +29,6 @@ for container in containers:
     if dep_container !=  "":
         dep_container = dep_container[:dep_container.index(":")]
         containers.remove(client.containers.get(dep_container))
-
-for dep_container in dep_containers:
-    containers.append(dep_container)
 
 def filter_func(tarinfo):
     if any(dir in os.path.normpath(os.path.abspath(tarinfo.name)) for dir in exclude_dirs):
@@ -46,16 +46,34 @@ try:
     print("...")
     print("Stopping all containers...")
 
-    for container in containers:
-        container.stop(timeout=15)
-        container.wait()
+    print("...")
+    print("...")
+    print("...")
+    for container in client.containers.list():
+        if str(container.status) == "running":
+            try:
+                print("Stopping container " + str(container.name) + " ...")
+                container.stop(timeout=30)
+                container.wait(timeout=600)
+            except:
+                traceback.print_exc(limit=1)
+                continue
+
+    for container in client.containers.list():
+        if str(container.status) == "running":
+            print("...")
+            print("...")
+            print("...")
+            print("Container " + str(container.name) + " has not stopped. Sending kill signal...")
+            container.kill()
+            container.wait(timeout=30)
 
     print("...")
     print("...")
     print("...")
     print("Creating tar.gz file...")
 
-    tar = tarfile.open(filename, "w:gz")
+    tar = tarfile.open(filename, "w:gz", dereference=True)
     tar.add(docker_dir, filter=filter_func)
     tar.close()
 
@@ -65,12 +83,20 @@ try:
     print("Starting all containers...")
 
     for container in containers:
-        container.start()
-        time.sleep(15)
+        subprocess.run([
+            "/usr/local/bin/docker-compose",
+            "-f",
+            container.labels['com.docker.compose.project.config_files'],
+            "up",
+            "-d",
+            "--pull",
+            "missing",
+            "--wait"])
 
     print("...")
     print("...")
     print("...")
+    print("Uploading to gdrive...")
 
     rclone.copy(filename, "gdrive:/lab", args=["--retries=5"])
 
@@ -79,8 +105,8 @@ try:
     print("...")
     print("Deleting tar.gz file...")
 
-    if os.path.exists(filename):
-        os.remove(filename)
+    if os.path.exists(os.path.abspath(filename)):
+        os.remove(os.path.abspath(filename))
 
     backups = rclone.ls(
         "gdrive:/lab",
@@ -112,8 +138,31 @@ try:
     print("...")
     print("success")
 except:
+    print("...")
+    print("...")
+    print("...")
+    print("Exception occured in overall block, printing traceback...")
+
+    traceback.print_exc(limit=1)
+
     if os.path.exists(filename):
         os.remove(filename)
 
-    for container in containers:
-        container.start()
+    print("...")
+    print("...")
+    print("...")
+    print("Starting all containers...")
+
+    for container in client.containers.list():
+        if str(container.status) != "running":
+            try:
+                container.start()
+            except:
+                continue
+
+    for container in client.containers.list():
+        if str(container.status) != "running":
+            try:
+                container.start()
+            except:
+                print("Failed to start container " + str(container.name) + "...")
